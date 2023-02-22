@@ -1,0 +1,150 @@
+# Sample Code:
+# Some Functions for Statistical Analysis in R
+# Pablo Spivakovsky Gonzalez
+
+computetstat<-function(x1,x2)
+{
+# Given two vectors of observations x1 and x2, compute t-statistic to
+# test hypothesis that the means of the two datasets are equal
+
+   a=length(x1)
+   b=length(x2)
+   sp=sqrt(((a-1)*sd(x1)^2+(b-1)*sd(x2)^2)/(a+b-2))  # pooled standard deviation
+   t=(mean(x1)-mean(x2))/(sp*sqrt(1/a+1/b))
+   return(t)
+}
+
+
+montecarlo<-function(a,b,alpha,N)
+{
+# Simple MonteCarlo simulation.
+# a,b: sample sizes
+# alpha: significance level
+# N: number of simulations
+
+   n.reject=0   # counter of number of rejections
+   for (i in 1:N)
+   {
+      x1=rnorm(a,mean=0,sd=1)    # simulates x1 values from population 1
+      x2=rnorm(b,mean=0,sd=1)    # simulates x2 values from population 2
+      t=computetstat(x1,x2)      # computes the t statistic
+      if (abs(t)>qt(1-alpha/2,a+b-2))
+         n.reject=n.reject+1     # reject if |t| exceeds critical pt
+   }
+   true.sig.level=n.reject/N      # est. is proportion of rejections
+   return(true.sig.level)
+}
+
+
+transplposterior<-function(theta,heartdata)
+{
+# Function used as part of the analysis of heart transplant survival dataset,
+# in particular to calculate the posterior distribution assuming a Bayesian
+# model with three parameters (given by the vector theta). 
+
+   x=heartdata[,1]  # survival time
+   y=heartdata[,3]  # time to transplant
+   t=heartdata[,2]  # transplant indicator
+   d=heartdata[,4]  # censoring indicator (d = 0 if died)
+   tau=exp(theta[,1])
+   lambda=exp(theta[,2])
+   p=exp(theta[,3])
+   val=0*tau
+   xnt=x[t==0]  # xnt: survival time for nontransplant patients
+   dnt=d[t==0]  # dnt: censoring indicator for nontransplant patients
+   z=x[t==1]
+   y=y[t==1]
+   dt=d[t==1]
+   N=length(xnt)
+   M=length(z)
+   for (i in 1:N)
+      val=val+(dnt[i]==0)*(p*log(lambda)+log(p)-(p+1)*log(lambda+xnt[i]))+
+                  (dnt[i]==1)*p*log(lambda/(lambda+xnt[i]))
+   for (i in 1:M)
+      val=val+(dt[i]==0)*(p*log(lambda)+log(p*tau)-(p+1)*log(lambda+y[i]+tau*z[i]))+
+                  (dt[i]==1)*p*log(lambda/(lambda+y[i]+tau*z[i]))
+   val=val+theta[,1]+theta[,2]+theta[,3]
+   return(val)
+}
+
+# Example usage in the analysis:
+# > start=array(c(1,2,-1),c(1,2))
+# > laplacefit=laplace(transplposterior,start,10,heartdata)
+# > proposal=list(var=laplacefit$var,scale=2)
+# > s=rwmetrop(transplposterior,proposal,start,10000,heartdata)
+# > tau=exp(s$par[,1])
+# > plot(density(tau),main="TAU")
+# > apply(exp(s$par),2,quantile,c(.05,.5,.95))
+
+
+cauchyposterior<-function(theta,y)
+{
+# Calculate posterior for Cauchy distribution.
+# theta: distribution parameters
+# y: vector of observations 
+
+   mu=theta[,1]
+   lambda=theta[,2]
+   sigma=exp(lambda)
+   val=0*mu
+   for (i in 1:length(y))
+       val=val+log(dt((y[i]-mu)/sigma,df=1)/sigma)
+   return(val)
+}
+
+# Example usage in analysis:
+# > start=array(c(21,2),c(1,3))
+# > fitlaplace=laplace(cauchyposterior,start,10,data)
+# > proposal=list(var=fitlaplace$var,scale=2.5)
+# > m=10000
+# > s=rwmetrop(cauchyposterior,proposal,start,m,data)
+# > mycontour(cauchyposterior,c(-11,50,1,3.5),data)
+# > title(xlab="mu",ylab="sigma")
+
+
+weibullreg<-function(theta,data)
+{
+# Function to aid in regression analysis under Weibull
+# proportional hazards model; calculates posterior
+# distribution given data and parameters theta.
+
+   s=dim(data)
+   k=s[2]
+   p=k-2
+   sp=dim(theta)
+   N=sp[1]
+   t=data[,1]
+   c=data[,2]
+   X=data[,3:k]
+   sigma=exp(theta[,1])
+   mu=theta[,2]
+   beta=array(theta[,3:k],c(N,p))
+   n=length(t)
+   val=0*mu
+   for (i in 1:n)
+   {
+      lp=0
+      for (j in 1:p)
+         lp=lp+beta[,j]*X[i,j]
+      zi=(log(t[i])-mu-lp)/sigma
+      fi=1/sigma*exp(zi-exp(zi))
+      Si=exp(-exp(zi))
+      val=val+c[i]*log(fi)+(1-c[i])*log(Si)
+   }
+   return(val)
+}
+
+# Example usage in analysis:
+# > start=array(c(-.6,10,.6,-.06),c(1,3))
+# > d=cbind(time,status,treat-1,age)
+# > fit=laplace(weibullreg,start,5,d)
+# > proposal=list(var=fit$var,scale=1.5)
+# > bayesfit=rwmetrop(weibullreg,proposal,fit$mode,10000,d)
+# > par(mfrow=c(2,2))
+# > sigma=exp(bayesfit$par[,1])
+# > mu=bayesfit$par[,2]
+# > beta1=bayesfit$par[,3]
+# > beta2=bayesfit$par[,4]
+# > hist(beta1,xlab="treatment")
+# > hist(beta2,xlab="age",main="")
+# > hist(sigma,xlab="sigma",main="")
